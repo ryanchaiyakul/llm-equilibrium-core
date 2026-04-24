@@ -8,7 +8,12 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "beartype>=0.22.9",
+    "dismech-jax",
     "jax>=0.10.0",
+    "matplotlib>=3.10.9",
+    "optax>=0.2.8",
+    "pandas>=3.0.2",
 ]
 
 [project.optional-dependencies]
@@ -29,4 +34,8 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
+    "ruff>=0.15.11",
 ]
+
+[tool.uv.sources]
+dismech-jax = { git = "https://github.com/ryanchaiyakul/dismech-jax.git" }
