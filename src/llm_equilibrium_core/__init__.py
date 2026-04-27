@@ -1,6 +1,6 @@
 from .triplet_model import TripletModel, validate_model
 from .train import Dataset, TrainConfig, train
-from .util import load_csv, get_S
+from .util import load_csv, get_S, get_FIM
 
 __all__ = [
     "Dataset",
@@ -10,4 +10,5 @@ __all__ = [
     "train",
     "load_csv",
     "get_S",
+    "get_FIM",
 ]

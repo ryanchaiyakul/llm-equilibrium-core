@@ -10,7 +10,7 @@ from beartype import beartype
 class TripletModel(eqx.Module):
     """NN base class."""
 
-    def __init__(self, K0: jax.Array, key: jax.Array): ...
+    def __init__(self, key: jax.Array): ...
 
     @abstractmethod
     def __call__(self, del_strain: Float[jax.Array, "3"]) -> Float[jax.Array, ""]: ...
@@ -30,7 +30,7 @@ def validate_model(cls: type) -> None:
     if not issubclass(cls, TripletModel):
         raise ValueError(f"validate_model: {cls} is not an subclass of {TripletModel}")
     try:
-        obj = cls(jnp.ones(3), jax.random.PRNGKey(42))
+        obj = cls(jax.random.PRNGKey(42))
     except TypeError:
         raise ValueError(f"validate_model: {cls} cannot be initialized with a PRNGKey")
     try:

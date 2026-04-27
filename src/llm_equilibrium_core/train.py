@@ -1,54 +1,11 @@
-from dataclasses import dataclass
-from pathlib import Path
 import jax
 import jax.numpy as jnp
-import numpy as np
 import equinox as eqx
 import optax
 
 import dismech_jax as djx
-from llm_equilibrium_core import TripletModel, validate_model
-
-
-class Dataset(eqx.Module):
-    qs: jax.Array
-    S: jax.Array
-    length: float
-    mass: float
-
-    @classmethod
-    def from_npz(cls, filepath: Path | str):
-        data = np.load(filepath)
-        return cls(
-            qs=jnp.asarray(data.get("qs", [])),
-            S=jnp.asarray(data.get("S", [])),
-            mass=data.get("mass", 0.0),
-            length=data.get("length", 0.1),
-        )
-
-    def to_npz(self, filepath: Path | str):
-        jnp.savez(filepath, qs=self.qs, S=self.S, mass=self.mass, length=self.length)
-
-
-@dataclass
-class TrainConfig:
-    # Rod config
-    length: float = 0.1
-    radius: float = 1e-3
-    density: float = 1e3
-    youngs_mod: float = 1e6
-    N: int = 5
-    idx_b: jax.Array | None = None
-    K0: jax.Array | None = None
-
-    # Loss config
-    S_factor: float = 0.1
-
-    # Training config
-    lr: float = 1e-3
-    epochs: int = 1000
-    print_every: int = 100
-    verbose: bool = True
+from .triplet_model import TripletModel, validate_model
+from .util import Dataset, TrainConfig
 
 
 def train(
@@ -72,8 +29,7 @@ def train(
     rod = djx.Rod2D.from_geometry(geom, mat, N=config.N, bc=bc)
 
     # Initialize base model
-    K0 = rod.get_DER(geom, mat).K if config.K0 is None else config.K0
-    model = model_cls(K0, key)
+    model = model_cls(key)
 
     # Resolve indicies
     idx_b = idx_b % rod.q0.size
@@ -99,9 +55,7 @@ def train(
         # If memory becomes an issue with large batches, change jax.vmap to jax.lax.map
         qs, S_truth = dataset.qs, dataset.S
         S_pred = jax.vmap(lambda q: get_S(current_model, q))(qs)
-        F_pred = jax.vmap(lambda q: rod.get_F(jnp.array([]), q, current_model, None))(
-            qs
-        )
+        F_pred = jax.vmap(lambda q: rod.get_F(jnp.array([]), q, current_model))(qs)
         L_eq = jnp.mean(jnp.square(F_pred))  # Want residual to be 0
         L_sens = jnp.sum(jnp.square(S_truth - S_pred))
         return L_eq + config.S_factor * L_sens
@@ -110,9 +64,7 @@ def train(
         """Computes the combined equilibrium and sensitivity loss."""
         # If memory becomes an issue with large batches, change jax.vmap to jax.lax.map
         qs = dataset.qs
-        F_pred = jax.vmap(lambda q: rod.get_F(jnp.array([]), q, current_model, None))(
-            qs
-        )
+        F_pred = jax.vmap(lambda q: rod.get_F(jnp.array([]), q, current_model))(qs)
         return jnp.mean(jnp.square(F_pred))  # Want residual to be 0
 
     loss_and_grad = eqx.filter_value_and_grad(compute_loss)
