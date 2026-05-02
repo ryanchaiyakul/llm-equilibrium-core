@@ -13,7 +13,35 @@ class TripletModel(eqx.Module):
     def __init__(self, key: jax.Array): ...
 
     @abstractmethod
-    def __call__(self, del_strain: Float[jax.Array, "3"]) -> Float[jax.Array, ""]: ...
+    def __call__(self, del_strain: Float[jax.Array, "3"]) -> Float[jax.Array, ""]: ...  # noqa
+
+    @classmethod
+    def validate(cls, target_cls: type) -> None:
+        """Validates a provided class as a suitable implementation of this model."""
+        if not issubclass(target_cls, cls):
+            raise ValueError(
+                f"Validation failed: {target_cls} is not a subclass of {cls.__name__}"
+            )
+        try:
+            obj = target_cls(jax.random.PRNGKey(42))
+        except TypeError as e:
+            raise ValueError(
+                f"Validation failed: {target_cls.__name__} cannot be initialized with a PRNGKey.\n{e}"
+            )
+        try:
+            res = obj(jnp.zeros(3))
+            if res.shape != ():
+                raise ValueError(
+                    f"Validation failed: Expected scalar output, got shape {res.shape}"
+                )
+        except TypeCheckError as e:
+            raise ValueError(
+                f"Validation failed: {target_cls.__name__}.__call__ failed type check:\n{e}"
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Validation failed: {target_cls.__name__}.__call__ raised an exception: \n{e}"
+            )
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -23,21 +51,3 @@ class TripletModel(eqx.Module):
             child_call = cls.__dict__["__call__"]
             child_call.__annotations__ = parent_annotations.copy()
             cls.__call__ = jaxtyped(typechecker=beartype)(child_call)
-
-
-def validate_model(cls: type) -> None:
-    """Validates a provided class as a suitable TripletModel. Throws a ValueError if improper."""
-    if not issubclass(cls, TripletModel):
-        raise ValueError(f"validate_model: {cls} is not an subclass of {TripletModel}")
-    try:
-        obj = cls(jax.random.PRNGKey(42))
-    except TypeError:
-        raise ValueError(f"validate_model: {cls} cannot be initialized with a PRNGKey")
-    try:
-        obj(jnp.empty(3))
-    except TypeCheckError as e:
-        raise ValueError(f"validate_model: obj.__call__ must return a scalar:\n {e}")
-    except Exception as e:
-        raise ValueError(
-            f"validate_model: obj.__call__ encountered an unknown exception: \n {e}"
-        )

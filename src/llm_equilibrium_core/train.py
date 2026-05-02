@@ -5,7 +5,7 @@ import equinox as eqx
 import optax
 
 import dismech_jax as djx
-from .triplet_model import TripletModel, validate_model
+from .triplet_model import TripletModel
 from .util import Dataset, TrainConfig, ActiveMethod, IniMethod
 
 
@@ -17,7 +17,7 @@ def train(
     config: TrainConfig = TrainConfig(),
 ):
     # Config check
-    validate_model(model_cls)
+    TripletModel.validate(model_cls)
     if config.N0_filler > config.N0_samples:
         raise ValueError(
             f"train: config.N0_filler must be less than config.N0_samples ({config.N0_filler}>{config.N0_samples})"
@@ -187,7 +187,7 @@ def train(
     N_train = train_ds.qs.shape[0]
     active_mask = np.zeros(N_train, dtype=bool)
     N_method = config.N0_samples - config.N0_filler
-    
+
     # Get samples
     if N_method > 0:
         if config.ini_method == IniMethod.CENTROID:

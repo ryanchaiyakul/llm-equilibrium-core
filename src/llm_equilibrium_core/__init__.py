@@ -1,14 +1,7 @@
-from .triplet_model import TripletModel, validate_model
+from .triplet_model import TripletModel
 from .train import train
-from .util import (
-    Dataset,
-    TrainConfig,
-    load_csv,
-    get_S,
-    get_FIM,
-    ActiveMethod,
-    IniMethod,
-)
+from .util import Dataset, TrainConfig, ActiveMethod, IniMethod
+from .rod_helper import get_S, solve
 
 __all__ = [
     "Dataset",
@@ -16,9 +9,7 @@ __all__ = [
     "ActiveMethod",
     "IniMethod",
     "TripletModel",
-    "validate_model",
     "train",
-    "load_csv",
     "get_S",
-    "get_FIM",
+    "solve",
 ]
