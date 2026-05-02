@@ -1,16 +1,35 @@
 from pathlib import Path
 from dataclasses import dataclass
+from enum import IntEnum
 import jax
 import jax.numpy as jnp
 import jax.flatten_util
 import pandas as pd
 import numpy as np
 import equinox as eqx
+import json
 
 import dismech_jax as djx
 from sklearn.neighbors import NearestNeighbors
 
 from .triplet_model import TripletModel
+
+
+class ActiveMethod(IntEnum):
+    RANDOM = 0  # Baseline
+    EXPERIMENTAL_S = 1  # Oracle S
+    OFFLINE_S = 2  # Offline S
+    ONLINE_S = 3  # Online S
+    OFFLINE_RES = 4  # Offline residual
+    ONLINE_RES = 5  # Online residual
+    OFFLINE_UNCERTAINTY = 6  # Ensemble uncertainty
+    ONLINE_UNCERTAINTY = 7  # Furthest point sampling
+
+
+class IniMethod(IntEnum):
+    RANDOM = 0  # Baseline
+    MAX_S = 1  # Oracle S
+    CENTROID = 2  # Most average point
 
 
 @dataclass
@@ -23,20 +42,34 @@ class TrainConfig:
     N: int = 5
     idx_b: jax.Array | None = None
 
-    # Loss config
-    S_factor: float = 0.1
-
     # Training config
-    lr: float = 1e-3
+    lr: float = 1e-1
+    save_every: int = 1000
+    ensemble_size: int = 5
+
+    # Passive config
     epochs: int = 1000
-    print_every: int = 100
-    verbose: bool = True
+
+    # Active config
+    active: bool = True
+    active_method: ActiveMethod = ActiveMethod.RANDOM
+    N_epochs_per_addition: int = 500
+    N_samples_per_addition: int = 1
+    N_additions: int = 9
+
+    # Initialization
+    ini_method: IniMethod = IniMethod.CENTROID
+    N0_samples: int = 1
+    N0_filler: int = 0
+
+    # Loss config
+    S_factor: float = 0.0
 
 
 object_map = {
     "slinky": {"length": 0.2, "mass": 30e-3},
     "strip": {"length": 0.33, "mass": 7e-3},
-    "brizier": {"length": 0.35, "mass": 10e-3},
+    "brazier": {"length": 0.35, "mass": 10e-3},
     "tape": {"length": 0.3, "mass": 10e-3},
 }
 
@@ -73,6 +106,49 @@ def load_csv(filepath: Path | str, is_2d: bool = False) -> np.ndarray:
     return trajectories
 
 
+def load_json(
+    filepath: Path | str,
+    is_2d: bool = False,
+    markers: int = 5,
+) -> np.ndarray:
+    """Load output of JSONL from library."""
+    # JSONL needs to be flattened manually
+    with Path(filepath).open("r") as f:
+        data = [json.loads(line) for line in f]
+    df = pd.json_normalize(data)
+
+    # Extract markers
+    coord_cols = [
+        c
+        for c in df.columns
+        if "marker_" in c and any(a in c for a in [".x", ".y", ".z"])
+    ]
+
+    def sort_key(name: str):
+        parts = name.split("_")[-1].split(".")
+        return (int(parts[0]), {"x": 0, "y": 1, "z": 2}[parts[1]])
+
+    sorted_cols = sorted(coord_cols, key=sort_key)[: markers * 3]
+    trajectories = np.array(df[sorted_cols].values).reshape(len(df), -1, 3)
+
+    # 4. Rotate for gravity = Z-Down
+    alignment_matrix = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
+    trajectories = trajectories @ alignment_matrix.T
+
+    # Center at (0,0,0)
+    root_origin = trajectories[:, 0, :]
+    trajectories = trajectories - root_origin[:, None, ...]
+
+    if is_2d:
+        trajectories = trajectories[..., [0, 2]]
+
+    # Remove NaNs
+    mask = ~np.isnan(trajectories).any(axis=(1, 2))
+    trajectories = trajectories[mask]
+
+    return trajectories
+
+
 class Dataset(eqx.Module):
     qs: jax.Array
     S: jax.Array
@@ -102,6 +178,35 @@ class Dataset(eqx.Module):
             raise ValueError(f"from_csv: {filepath.stem} is an unknown DLO.")
 
         trajectories = load_csv(filepath, is_2d)
+        qs = trajectories.reshape(trajectories.shape[0], -1)
+        S = get_S(trajectories, base_l2_reg=base_l2_reg)
+
+        return cls(
+            qs=jnp.asarray(qs),
+            S=jnp.asarray(S),
+            mass=obj_info["mass"],
+            length=obj_info["length"],
+        )
+
+    @classmethod
+    def from_json(
+        cls,
+        filepath: Path | str,
+        is_2d: bool = True,
+        markers: int = 5,
+        base_l2_reg=1e2,
+    ):
+        filepath = Path(filepath)
+        obj_info = None
+        for name, specs in object_map.items():
+            if name in filepath.stem:
+                obj_info = specs
+                break
+
+        if obj_info is None:
+            raise ValueError(f"from_csv: {filepath.stem} is an unknown DLO.")
+
+        trajectories = load_json(filepath, is_2d, max_marker=markers)
         qs = trajectories.reshape(trajectories.shape[0], -1)
         S = get_S(trajectories, base_l2_reg=base_l2_reg)
 
